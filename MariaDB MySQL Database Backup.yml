@@ -1,0 +1,87 @@
+- name: Perform MariaDB/MySQL database backup
+  hosts: #add your hosts
+  vars_files:
+    - Your_Secure_Vault_File.yml # Ansible Vault encrypted file for passwords and secure information values. Recommended for hiding the passwords during execution. Name what ever you want from file you create
+
+  tasks:
+    - name: Create backup directory based on date
+      file:
+        path: "./database_backups/{{ ansible_date_time.date }}"
+        state: directory
+
+    - name: Dump MariaDB database (Creates a SQL backup)
+      community.mysql.mysql_db:
+        name: #rename to desired database in question
+        state: dump
+        login_user: "{{ wordpress_database_username }}" #Ensure user has access to the database via permission. Else this will fail with login failure or permission issue
+        login_password: "{{ wordpress_database_password }}"
+        target: "./database_backups/{{ ansible_date_time.date }}/dump_{{ ansible_hostname }}.sql"
+      register: mysql_dump_result
+	  
+    - name: Finds the copy of the files for removal later
+      ansible.builtin.find:
+        paths: "./database_backups/{{ ansible_date_time.date }}"
+        patterns: "dump_*.sql"
+        recurse: 'yes'
+      register: backup_files
+	  
+    - name: Sort backup files by modification time for removal later
+      set_fact:
+        sorted_backup_files: "{{ backup_files.files | sort(attribute='mtime') | list }}"
+	  
+#    - name: Copy the database backup to NAS using Ansible smb module
+#     ansible.builtin.smb:
+#      src: "./database_backups/{{ ansible_date_time.date }}}/dump_{{ ansible_hostname }}.sql"
+#      dest: "smb://{{ nas_user }}:{{ nas_password }}@{{ nas_ip }}/TargetFolder/"
+#        username: "{{ nas_user }}"
+#        password: "{{ nas_password }}"
+#      vars:
+#        nas_ip: ""
+# Couldn't get this one to function with my NAS. If able to get working, use insteal of cifs-util route
+
+    - name: Install cifs-utils
+      become: yes  # Run the task with elevated privileges
+      apt:
+        name: cifs-utils
+        state: present
+
+    - name: Create temporary SMB directory
+      ansible.builtin.file:
+        path: "/mnt/smb" #Temp folder for handling the transfers
+        state: directory
+      become: yes # Run the task with elevated privileges      
+
+      #Understand this is not the most secure method, but since its only moving one file to a local NAS system that has better security I use this method at the moment
+    - name: Mount SMB directory
+      ansible.builtin.mount:
+        path: "/mnt/smb"  # Local mount point
+        src: "{{ NAS_IP_ADDRESS }}"  # SMB server and share. Format:  //IP/TargetFolder
+        fstype: "cifs"
+        opts: "vers=2.0,username= {{ NAS_USERNAME }},password= {{ NAS_PASSWORD }},uid=1000,gid=1000"  #creditials for NAS. Recommend an account specifically for this purpose or role
+        state: "mounted"
+      become: yes # Run the task with elevated privileges
+      
+
+    - name: Copy Database Backup folder to NAS Mount Share
+      command: cp -r ./database_backups/{{ ansible_date_time.date }} /mnt/smb #Copies contents of the backup folder to this location
+
+    - name: Unmount SMB directory to allow removal of Directory
+      command: sudo umount /mnt/smb
+      become: yes # Run the task with elevated privileges
+
+    - name: Remove SMB directory for security
+      command: sudo rmdir /mnt/smb
+      become: yes # Run the task with elevated privileges
+
+    - name: Uninstall cifs-utils for security
+      ansible.builtin.package:
+        name: cifs-utils
+        state: absent
+      become: yes # Run the task with elevated privileges
+
+    - name: Remove local copy for security purposes
+      ansible.builtin.shell:
+        cmd: "rm -f {{ item.path }}"
+      when: sorted_backup_files | length >= 1
+      with_items: "{{ sorted_backup_files | reverse | list | slice(3) }}"
+
