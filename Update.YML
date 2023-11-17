@@ -1,0 +1,23 @@
+- name: Upgrade and reboot all Ubuntu based Servers
+  hosts: #<replace with your host>
+  gather_facts: yes
+  become: yes
+  tasks:
+    - name: Update and Upgrade Host Server
+      apt:
+        update_cache: yes
+        upgrade: 'yes'
+
+    - name: Remove dependencies that are no longer required
+      ansible.builtin.apt:
+        autoremove: yes
+
+    - name: Check if a reboot is required
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+        get_md5: no
+      register: reboot_required_file
+
+    - name: Reboot the Server (if required).
+      ansible.builtin.reboot:
+      when: reboot_required_file.stat.exists == true
