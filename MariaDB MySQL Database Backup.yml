@@ -55,7 +55,7 @@
     - name: Mount SMB directory
       ansible.builtin.mount:
         path: "/mnt/smb"  # Local mount point
-        src: "{{ NAS_IP_ADDRESS }}"  # SMB server and share. Format:  //IP/TargetFolder
+        src: "//{{ NAS_IP_ADDRESS }}/TargetFolder"  # SMB server and share. Format:  //IP/TargetFolder
         fstype: "cifs"
         opts: "vers=2.0,username= {{ NAS_USERNAME }},password= {{ NAS_PASSWORD }},uid=1000,gid=1000"  #creditials for NAS. Recommend an account specifically for this purpose or role
         state: "mounted"
