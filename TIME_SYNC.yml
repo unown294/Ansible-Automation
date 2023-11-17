@@ -1,0 +1,16 @@
+---
+- name: Set Time Zone and Correct Time
+  hosts: #Change to your host structure
+  become: yes
+
+  tasks:
+    - name: Set Time Zone to Chicago
+      command: timedatectl set-timezone America/Chicago #Change to your time zone
+
+    - name: Correct the System Clock
+      command: timedatectl set-ntp true
+
+    - name: Restart systemd-timesyncd for changes to take effect
+      systemd:
+        name: systemd-timesyncd
+        state: restarted
